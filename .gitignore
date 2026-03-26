@@ -4,5 +4,5 @@ Thumbs.db
 .Rdata
 .httr-oauth
 
-.png
-.docx
+*.png
+*.docx
