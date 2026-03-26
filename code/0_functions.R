@@ -1,0 +1,552 @@
+# helpers from 1_df_preparation.R ------------------------------------------
+
+add_missing_coords <- function(df, coords_df) {
+  df |>
+    left_join(
+      coords_df |> select(id, decimal_latitude, decimal_longitude),
+      by = "id"
+    ) |>
+    mutate(
+      decimal_latitude = coalesce(decimal_latitude.x, decimal_latitude.y),
+      decimal_longitude = coalesce(decimal_longitude.x, decimal_longitude.y)
+    ) |>
+    select(-ends_with(".x"), -ends_with(".y"))
+}
+
+label_bg_sample <- function(sf_obj, label) {
+  sf_obj |>
+    mutate(
+      source = label,
+      institution_code = label,
+      availability = label,
+      data_type = label
+    )
+}
+
+# Split Species Names ----------------------------------------------------
+
+split_verbatim_scientific_name <- function(
+  df,
+  column = "verbatimScientificName"
+) {
+  df %>%
+    mutate(
+      match = str_match(
+        .[[column]],
+        "^([A-Z][a-z]+)(?:\\s([a-z]+))?(?:\\s*\\(?([A-Za-z\\.\\s]+),\\s*(\\d{4})\\)?)?"
+      ),
+      v_genus = match[, 2],
+      v_species = match[, 3],
+      v_authority_name = match[, 4],
+      v_authority_date = match[, 5]
+    ) %>%
+    select(-match)
+}
+
+
+# nnpca (adapted from ggpca) ---------------------------------------------
+
+nnpca <- function(
+  data,
+  metadata_cols,
+  mode = c("pca", "tsne", "umap"),
+  scale = TRUE,
+  x_pc = "PC1",
+  y_pc = "PC2",
+  color_var = NULL,
+  ellipse = TRUE,
+  ellipse_level = 0.9,
+  ellipse_type = "norm",
+  ellipse_alpha = 0.9,
+  point_size = 3,
+  point_alpha = 0.6,
+  facet_var = NULL,
+  tsne_perplexity = 30,
+  umap_n_neighbors = 15,
+  density_plot = "none",
+  color_palette = "Set1",
+  xlab = NULL,
+  ylab = NULL,
+  title = NULL,
+  subtitle = NULL,
+  caption = NULL,
+  filter = NULL,
+  bg_filter = NULL,
+  bg_colour = "grey80",
+  bg_alpha = 0.3,
+  bg_size = 1.5,
+  #loadings controls
+  loadings = FALSE,
+  loadings_multiplier = 2,
+  loadings_arrow_multiplier = 3,
+  loadings_arrow_length = 0.2, #in cm
+  loadings_color = "black",
+  loadings_label_size = 3,
+  loadings_label_offset = 1.12 #push labels beyond arrow tips (multiplier)
+) {
+  mode <- match.arg(mode)
+  density_plot <- match.arg(density_plot, choices = c("x", "y", "both", "none"))
+  if (is.numeric(metadata_cols)) {
+    metadata <- data[, metadata_cols, drop = FALSE]
+    features <- data[, -metadata_cols, drop = FALSE]
+  } else if (is.character(metadata_cols)) {
+    metadata <- data[, metadata_cols, drop = FALSE]
+    features <- data[, !names(data) %in% metadata_cols, drop = FALSE]
+  } else {
+    stop(
+      "metadata_cols should be either a numeric vector or a character vector."
+    )
+  }
+  features <- dplyr::select_if(features, is.numeric)
+  explained_variance <- NULL
+  if (mode == "pca") {
+    pca <- stats::prcomp(features, scale. = scale)
+    scores <- as.data.frame(pca$x)
+    colnames(scores) <- paste0("PC", seq_len(ncol(scores)))
+    explained_variance <- round(100 * pca$sdev^2 / sum(pca$sdev^2), 1)
+    xlab <- if (is.null(xlab)) {
+      paste0(x_pc, " (", explained_variance[1], "% variance)")
+    } else {
+      xlab
+    }
+    ylab <- if (is.null(ylab)) {
+      paste0(y_pc, " (", explained_variance[2], "% variance)")
+    } else {
+      ylab
+    }
+
+    #  prepare loadings dataframe when requested
+    loadings_df <- NULL
+    if (isTRUE(loadings)) {
+      rot <- as.data.frame(pca$rotation)
+      rot2 <- rot[, seq_len(min(2, ncol(rot))), drop = FALSE]
+      colnames(rot2) <- c("PC1", "PC2")
+      loadings_df <- as.data.frame(rot2)
+      loadings_df$variable <- rownames(rot2)
+      loadings_df$PC1_scaled <- loadings_df$PC1 * loadings_multiplier
+      loadings_df$PC2_scaled <- loadings_df$PC2 * loadings_multiplier
+      loadings_df$xend <- loadings_df$PC1_scaled * loadings_arrow_multiplier
+      loadings_df$yend <- loadings_df$PC2_scaled * loadings_arrow_multiplier
+      # compute label positions slightly beyond arrow tips
+      loadings_df$label_x <- loadings_df$xend * loadings_label_offset
+      loadings_df$label_y <- loadings_df$yend * loadings_label_offset
+    }
+    # end loadings prep
+  } else if (mode == "tsne") {
+    tsne_result <- Rtsne::Rtsne(
+      as.matrix(features),
+      perplexity = tsne_perplexity,
+      check_duplicates = FALSE
+    )
+    scores <- as.data.frame(tsne_result$Y)
+    colnames(scores) <- c("Dim1", "Dim2")
+    x_pc <- "Dim1"
+    y_pc <- "Dim2"
+    xlab <- if (is.null(xlab)) {
+      x_pc
+    } else {
+      xlab
+    }
+    ylab <- if (is.null(ylab)) {
+      y_pc
+    } else {
+      ylab
+    }
+  } else if (mode == "umap") {
+    umap_result <- umap::umap(
+      as.matrix(features),
+      n_neighbors = umap_n_neighbors
+    )
+    scores <- as.data.frame(umap_result$layout)
+    colnames(scores) <- c("UMAP1", "UMAP2")
+    x_pc <- "UMAP1"
+    y_pc <- "UMAP2"
+    xlab <- if (is.null(xlab)) {
+      x_pc
+    } else {
+      xlab
+    }
+    ylab <- if (is.null(ylab)) {
+      y_pc
+    } else {
+      ylab
+    }
+  }
+  plot_data <- dplyr::bind_cols(metadata, scores)
+
+  # Validate filter/bg_filter variables exist in metadata to avoid confusing 'match' errors
+  extract_vars_from_expr <- function(expr_input) {
+    if (is.null(expr_input)) {
+      return(character(0))
+    }
+    if (is.character(expr_input)) {
+      expr_parsed <- rlang::parse_expr(expr_input)
+    } else {
+      expr_parsed <- expr_input
+    }
+    if (rlang::is_formula(expr_parsed)) {
+      expr_parsed <- rlang::f_rhs(expr_parsed)
+    }
+    # ensure we have a language object for all.vars
+    expr_lang <- expr_parsed
+    all.vars(expr_lang)
+  }
+
+  plot_colnames <- colnames(plot_data)
+
+  # check bg_filter
+  if (!is.null(bg_filter)) {
+    bg_vars <- extract_vars_from_expr(bg_filter)
+    missing_bg <- setdiff(bg_vars, plot_colnames)
+    if (length(missing_bg) > 0) {
+      stop(
+        "`bg_filter` references missing columns in metadata: ",
+        paste(missing_bg, collapse = ", ")
+      )
+    }
+  }
+
+  # check main filter
+  if (!is.null(filter)) {
+    filter_vars <- extract_vars_from_expr(filter)
+    missing_filter <- setdiff(filter_vars, plot_colnames)
+    if (length(missing_filter) > 0) {
+      stop(
+        "`filter` references missing columns in metadata: ",
+        paste(missing_filter, collapse = ", ")
+      )
+    }
+  }
+
+  # background data filter
+  plot_data_full <- plot_data
+  bg_data <- NULL
+  if (!is.null(bg_filter)) {
+    if (is.character(bg_filter)) {
+      expr_bg <- rlang::parse_expr(bg_filter)
+      bg_data <- dplyr::filter(plot_data_full, !!expr_bg)
+    } else if (rlang::is_formula(bg_filter)) {
+      expr_bg <- rlang::f_rhs(bg_filter)
+      bg_data <- dplyr::filter(plot_data_full, !!expr_bg)
+    } else {
+      fq_bg <- rlang::enquo(bg_filter)
+      if (!rlang::quo_is_null(fq_bg)) {
+        bg_data <- dplyr::filter(plot_data_full, !!fq_bg)
+      }
+    }
+    if (!is.null(bg_data) && nrow(bg_data) == 0) bg_data <- NULL
+  }
+  # Apply main filter to plot_data
+  if (!is.null(filter)) {
+    if (is.character(filter)) {
+      expr <- rlang::parse_expr(filter)
+      plot_data <- dplyr::filter(plot_data, !!expr)
+    } else if (rlang::is_formula(filter)) {
+      expr <- rlang::f_rhs(filter)
+      plot_data <- dplyr::filter(plot_data, !!expr)
+    } else {
+      fq <- rlang::enquo(filter)
+      if (!rlang::quo_is_null(fq)) {
+        plot_data <- dplyr::filter(plot_data, !!fq)
+      }
+    }
+    if (nrow(plot_data) == 0) {
+      stop("`filter` removed all rows; nothing to plot.")
+    }
+  }
+
+  if (!is.null(color_var)) {
+    if (!color_var %in% colnames(plot_data)) {
+      stop("`color_var` not found in the provided data. Check column names.")
+    }
+    aes_params <- ggplot2::aes(
+      x = .data[[x_pc]],
+      y = .data[[y_pc]],
+      color = .data[[color_var]]
+    )
+  } else {
+    aes_params <- ggplot2::aes(x = .data[[x_pc]], y = .data[[y_pc]])
+  }
+  p <- ggplot2::ggplot(plot_data, aes_params)
+
+  if (!is.null(bg_data)) {
+    p <- p +
+      ggplot2::geom_point(
+        data = bg_data,
+        ggplot2::aes(x = !!rlang::sym(x_pc), y = !!rlang::sym(y_pc)),
+        colour = bg_colour,
+        alpha = bg_alpha,
+        size = bg_size,
+        inherit.aes = FALSE
+      )
+  }
+
+  p <- p +
+    ggplot2::geom_point(size = point_size, alpha = point_alpha) +
+    ggplot2::theme_bw() +
+    ggplot2::labs(
+      title = title,
+      subtitle = subtitle,
+      caption = caption,
+      x = xlab,
+      y = ylab
+    ) +
+    ggplot2::theme(
+      panel.grid.major = ggplot2::element_blank(),
+      panel.grid.minor = ggplot2::element_blank(),
+      axis.title.x = ggplot2::element_text(
+        face = "bold",
+        margin = ggplot2::margin(t = 5),
+        size = 10
+      ),
+      axis.title.y = ggplot2::element_text(
+        face = "bold",
+        margin = ggplot2::margin(t = 5),
+        size = 10
+      ),
+      axis.text.x = ggplot2::element_text(
+        size = 8,
+        face = "bold",
+        color = "black"
+      ),
+      axis.text.y = ggplot2::element_text(
+        size = 8,
+        face = "bold",
+        color = "black"
+      )
+    )
+
+  if (!is.null(color_var)) {
+    if (is.numeric(plot_data[[color_var]])) {
+      p <- p + ggplot2::scale_color_gradient(low = "blue", high = "red")
+    } else {
+      p <- p +
+        if (length(color_palette) > 1) {
+          ggplot2::scale_color_manual(values = color_palette)
+        } else {
+          ggplot2::scale_color_brewer(palette = color_palette)
+        }
+    }
+  }
+  if (ellipse && mode == "pca") {
+    if (!is.null(color_var) && !is.numeric(plot_data[[color_var]])) {
+      p <- p +
+        ggplot2::stat_ellipse(
+          ggplot2::aes(group = .data[[color_var]]),
+          level = ellipse_level,
+          type = ellipse_type,
+          alpha = ellipse_alpha
+        )
+    } else if (is.null(color_var)) {
+      p <- p +
+        ggplot2::stat_ellipse(
+          level = ellipse_level,
+          type = ellipse_type,
+          alpha = ellipse_alpha
+        )
+    } else {
+      message(
+        "Ellipses are only supported for discrete color variables. Skipping ellipses."
+      )
+    }
+  }
+  if (!is.null(facet_var)) {
+    if (inherits(facet_var, "formula")) {
+      p <- p + ggplot2::facet_grid(facet_var)
+    } else {
+      stop("facet_var should be a formula (e.g., x ~ y, x ~ ., or . ~ y).")
+    }
+  }
+
+  # add loadings arrows + labels BEFORE any cowplot/ggdraw conversion
+  if (isTRUE(loadings) && mode == "pca" && !is.null(loadings_df)) {
+    p <- p +
+      ggplot2::geom_segment(
+        data = loadings_df,
+        ggplot2::aes(x = 0, y = 0, xend = xend, yend = yend),
+        arrow = grid::arrow(length = grid::unit(loadings_arrow_length, "cm")),
+        colour = loadings_color,
+        inherit.aes = FALSE
+      ) +
+      ggrepel::geom_text_repel(
+        data = loadings_df,
+        # use label_x/label_y so text sits beyond the arrow tip
+        ggplot2::aes(x = label_x, y = label_y, label = variable),
+        colour = loadings_color,
+        size = loadings_label_size,
+        inherit.aes = FALSE,
+        segment.size = 0.3
+      )
+  }
+  # end added loadings layer
+
+  fill_mapping <- if (!is.null(color_var)) {
+    ggplot2::aes(fill = .data[[color_var]])
+  } else {
+    ggplot2::aes()
+  }
+  if (density_plot %in% c("x", "both")) {
+    xdens <- ggplot2::ggplot(plot_data, fill_mapping) +
+      ggplot2::geom_density(alpha = 0.7, linewidth = 0.2) +
+      ggplot2::theme_classic() +
+      ggplot2::theme(legend.position = "none") +
+      {
+        if (!is.null(color_var) && is.numeric(plot_data[[color_var]])) {
+          ggplot2::scale_fill_gradient(low = "blue", high = "red")
+        } else if (!is.null(color_var)) {
+          if (length(color_palette) > 1) {
+            ggplot2::scale_fill_manual(values = color_palette)
+          } else {
+            ggplot2::scale_fill_brewer(palette = color_palette)
+          }
+        } else {
+          ggplot2::scale_fill_manual(values = c("gray50"))
+        }
+      } +
+      ggplot2::aes(x = .data[[x_pc]])
+    p <- cowplot::insert_xaxis_grob(
+      p,
+      xdens,
+      grid::unit(0.2, "null"),
+      position = "top"
+    )
+  }
+  if (density_plot %in% c("y", "both")) {
+    ydens <- ggplot2::ggplot(plot_data, fill_mapping) +
+      ggplot2::geom_density(alpha = 0.7, linewidth = 0.2) +
+      ggplot2::theme_classic() +
+      ggplot2::coord_flip() +
+      ggplot2::theme(legend.position = "none") +
+      {
+        if (!is.null(color_var) && is.numeric(plot_data[[color_var]])) {
+          ggplot2::scale_fill_gradient(low = "blue", high = "red")
+        } else if (!is.null(color_var)) {
+          if (length(color_palette) > 1) {
+            ggplot2::scale_fill_manual(values = color_palette)
+          } else {
+            ggplot2::scale_fill_brewer(palette = color_palette)
+          }
+        } else {
+          ggplot2::scale_fill_manual(values = c("gray50"))
+        }
+      } +
+      ggplot2::aes(x = .data[[y_pc]])
+    p <- cowplot::insert_yaxis_grob(
+      p,
+      ydens,
+      grid::unit(0.2, "null"),
+      position = "right"
+    )
+  }
+  if (density_plot != "none") {
+    p <- cowplot::ggdraw(p)
+  }
+
+  return(p)
+}
+
+
+# Sample environmental points from DoC estate ----------------------------
+
+sample_env_points <- function(
+  n = 10000,
+  tiff_dir = here::here("data", "nzenvds_v1.1", "final_layers_nztm"),
+  gpkg_file = here::here(
+    "data",
+    "DOC_Public_Conservation_Land_4011045003548110480.gpkg"
+  ),
+  seed = NULL
+) {
+  if (!is.null(seed)) {
+    set.seed(seed)
+  }
+
+  tiff_files <- list.files(
+    path = tiff_dir,
+    pattern = "\\.tif$",
+    full.names = TRUE
+  )
+  if (length(tiff_files) == 0) {
+    stop("No .tif files found in ", tiff_dir)
+  }
+  if (!file.exists(gpkg_file)) {
+    stop("GPKG not found: ", gpkg_file)
+  }
+
+  # Read raster stack (SpatRaster)
+  env_stack <- terra::rast(tiff_files)
+
+  # Read DoC polygons
+  doc <- sf::st_read(gpkg_file, quiet = TRUE)
+  # ensure doc has a CRS
+  if (is.na(sf::st_crs(doc))) {
+    stop("DoC GPKG has no CRS; please inspect the file.")
+  }
+
+  # Reproject DoC polygons to raster CRS
+  raster_crs <- sf::st_crs(terra::crs(env_stack))
+  doc_crs <- sf::st_crs(doc)
+
+  same_crs <- if (!is.na(doc_crs$epsg) && !is.na(raster_crs$epsg)) {
+    doc_crs$epsg == raster_crs$epsg
+  } else {
+    identical(doc_crs$wkt, raster_crs$wkt)
+  }
+
+  if (!isTRUE(same_crs)) {
+    stop(
+      "CRS mismatch between DoC polygons and raster stack. ",
+      "Please reproject one of the datasets to match the other and try again.\n",
+      "DoC CRS: ",
+      if (!is.null(doc_crs$input)) doc_crs$input else "(unknown)",
+      "; Raster CRS: ",
+      if (!is.null(raster_crs$input)) raster_crs$input else "(unknown)"
+    )
+  }
+
+  # Combine polygons to a single geometry for sampling across whole estate
+  doc_union <- sf::st_union(doc)
+
+  # Draw random points inside the unioned polygon
+  pts_sfc <- sf::st_sample(doc_union, size = n, type = "random", exact = TRUE)
+  if (length(pts_sfc) == 0) {
+    stop("No points sampled. Check polygons / extent.")
+  }
+
+  pts_sf <- sf::st_sf(geometry = pts_sfc, crs = raster_crs)
+
+  # Extract raster values at the sample points
+  env_vals <- terra::extract(env_stack, terra::vect(pts_sf))
+  # env_vals has ID in first col; bind values to pts_sf
+  env_df <- as.data.frame(env_vals[, -1, drop = FALSE])
+  names(env_df) <- names(env_stack)
+
+  sampled <- dplyr::bind_cols(pts_sf, env_df)
+
+  # Drop points where all environmental layers are NA
+  # env_cols <- names(env_stack)
+  # keep <- rowSums(is.na(sampled[env_cols])) < length(env_cols)
+  # sampled <- sampled[keep, , drop = FALSE]
+
+  # Return sf with raster attributes
+  sampled
+}
+
+
+get_doc_env_sample <- function(
+  n = 10000,
+  seed = NULL,
+  path = here::here("data", "sf_doc_random_sample_10k.rds")
+) {
+  if (file.exists(path)) {
+    return(readRDS(path))
+  }
+  pts <- sample_env_points(n = n, seed = seed) |>
+    dplyr::mutate(
+      source = "doc_env_samples",
+      institution_code = "doc_env_samples",
+      availability = "doc_env_samples"
+    )
+  saveRDS(pts, path)
+  pts
+}
