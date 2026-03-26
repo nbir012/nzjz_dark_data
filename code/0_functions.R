@@ -550,3 +550,197 @@ get_doc_env_sample <- function(
   saveRDS(pts, path)
   pts
 }
+
+
+# ── Ecological-district map helpers (unified from scripts 3 & 4) ──────────────
+
+#' Minimal map theme
+#' @param base_size  base font size
+#' @param title_face font face for plot title ("bold" for genus, "italic" for species)
+#' @param legend_key_h legend key height (cm)
+#' @param legend_key_w legend key width (cm)
+#' @param legend_text_size legend text size (pt)
+#' @param legend_title_size legend title size (pt)
+theme_map <- function(
+  base_size = 10,
+  title_face = "italic",
+  subtitle_offset = 1.5,
+  legend_key_h = 0.55,
+  legend_key_w = 0.28,
+  legend_text_size = 7,
+  legend_title_size = 8
+) {
+  theme_void(base_size = base_size) +
+    theme(
+      plot.title = element_text(
+        face = title_face,
+        size = base_size,
+        hjust = 0.5
+      ),
+      plot.subtitle = element_text(
+        size = base_size - subtitle_offset,
+        colour = "grey30",
+        hjust = 0.5
+      ),
+      legend.key.height = unit(legend_key_h, "cm"),
+      legend.key.width = unit(legend_key_w, "cm"),
+      legend.text = element_text(size = legend_text_size),
+      legend.title = element_text(size = legend_title_size)
+    )
+}
+
+#' Minimal inset map theme
+theme_inset <- function() {
+  theme_void() +
+    theme(
+      panel.border = element_rect(colour = "grey40", fill = NA, linewidth = 0.4)
+    )
+}
+
+#' Integer-only scale breaks
+breaks_integer <- function(n = 5) {
+  function(limits) {
+    max_val <- floor(limits[2])
+    if (max_val <= 1) {
+      return(1)
+    }
+    unique(round(pretty(c(1, max_val), n = min(n, max_val))))
+  }
+}
+
+#' Viridis-plasma fill scale for record counts
+scale_fill_records <- function(limits = NULL, show_legend = TRUE) {
+  scale_fill_viridis_c(
+    option = "plasma",
+    na.value = "grey92",
+    name = "Records",
+    breaks = breaks_integer(),
+    labels = label_number(accuracy = 1),
+    limits = limits,
+    trans = "sqrt",
+    guide = if (show_legend) "colourbar" else "none"
+  )
+}
+
+#' Viridis-mako fill scale for difference (non-GBIF contribution)
+scale_fill_diff <- function(limits = NULL, show_legend = TRUE) {
+  scale_fill_viridis_c(
+    option = "mako",
+    na.value = "grey92",
+    name = "Added\nrecords",
+    breaks = breaks_integer(),
+    labels = label_number(accuracy = 1),
+    limits = limits,
+    trans = "sqrt",
+    direction = -1,
+    guide = if (show_legend) "colourbar" else "none"
+  )
+}
+
+#' Join counts to ecological-region sf layer
+join_eco <- function(sf_layer, counts) {
+  sf_layer |> left_join(counts, by = "ECOLOGICAL_REGION")
+}
+
+#' Add a Three Kings inset to a main map
+#' @param inset_right right edge of inset (0.20 for genus, 0.18 for species)
+add_inset <- function(
+  main_plot,
+  map_data,
+  fill_col,
+  scale,
+  inset_right = 0.18
+) {
+  tk_data <- map_data |> filter(ECOLOGICAL_REGION == "Three Kings")
+
+  inset <- ggplot(tk_data) +
+    geom_sf(aes(fill = {{ fill_col }}), colour = "grey60", linewidth = 0.3) +
+    scale +
+    theme_inset() +
+    theme(legend.position = "none")
+
+  main_plot +
+    inset_element(inset, left = 0, bottom = 0.75, right = inset_right, top = 1)
+}
+
+#' Plot a heatmap of record counts on ecological regions
+#' @param title       plot title (e.g. species name or "Anagotus")
+#' @param counts      data frame with ECOLOGICAL_REGION + count columns
+#' @param count_col   unquoted column name for fill
+#' @param subtitle    subtitle string
+#' @param scale       a ggplot2 fill scale (e.g. scale_fill_records())
+#' @param linewidth   border linewidth for regions
+#' @param map_theme   theme function call (e.g. theme_map(title_face = "bold"))
+#' @param inset_right right edge of Three Kings inset
+plot_heatmap <- function(
+  title,
+  counts,
+  count_col,
+  subtitle,
+  scale,
+  sf_eco,
+  linewidth = 0.15,
+  map_theme = theme_map(),
+  inset_right = 0.18
+) {
+  map_data <- join_eco(sf_eco, counts)
+
+  p <- ggplot(map_data) +
+    geom_sf(
+      aes(fill = {{ count_col }}),
+      colour = "grey60",
+      linewidth = linewidth
+    ) +
+    scale +
+    labs(title = title, subtitle = subtitle) +
+    map_theme
+
+  add_inset(p, map_data, {{ count_col }}, scale, inset_right = inset_right)
+}
+
+#' Plot difference (non-GBIF contribution) on ecological regions
+#' @param title       plot title
+#' @param counts      data frame with n_diff, n_gbif columns
+#' @param scale       fill scale (e.g. scale_fill_diff())
+#' @param linewidth   border linewidth
+#' @param map_theme   theme function call
+#' @param inset_right right edge of Three Kings inset
+#' @param subtitle    optional subtitle (NULL to omit)
+plot_diff <- function(
+  title,
+  counts,
+  scale,
+  sf_eco,
+  linewidth = 0.15,
+  map_theme = theme_map(),
+  inset_right = 0.18,
+  subtitle = NULL
+) {
+  counts_aug <- counts |>
+    mutate(
+      diff_plot = if_else(n_diff > 0, as.numeric(n_diff), NA_real_),
+      has_gbif_only = n_gbif > 0 & n_diff == 0
+    )
+
+  map_data <- join_eco(sf_eco, counts_aug)
+
+  p <- ggplot(map_data) +
+    geom_sf(fill = "grey92", colour = "grey60", linewidth = linewidth) +
+    geom_sf(
+      data = \(d) filter(d, has_gbif_only),
+      fill = "grey70",
+      colour = "grey60",
+      linewidth = linewidth
+    ) +
+    geom_sf(
+      data = \(d) filter(d, !is.na(diff_plot)),
+      aes(fill = diff_plot),
+      colour = "grey60",
+      linewidth = linewidth
+    ) +
+    scale +
+    labs(title = title, subtitle = subtitle) +
+    map_theme
+
+  add_inset(p, map_data, diff_plot, scale, inset_right = inset_right)
+}

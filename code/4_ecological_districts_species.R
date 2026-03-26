@@ -37,136 +37,7 @@ counts <- sf_anagotus_combined |>
 counts_nested <- counts |>
   nest(data = -specific_name)
 
-# ── 4. Shared theme ────────────────────────────────────────────────────────────
-
-theme_map <- function(base_size = 10) {
-  theme_void(base_size = base_size) +
-    theme(
-      plot.title = element_text(face = "italic", size = base_size, hjust = 0.5),
-      plot.subtitle = element_text(size = base_size - 1.5, colour = "grey30"),
-      legend.key.height = unit(0.55, "cm"),
-      legend.key.width = unit(0.28, "cm"),
-      legend.text = element_text(size = 7),
-      legend.title = element_text(size = 8)
-    )
-}
-
-theme_inset <- function() {
-  theme_void() +
-    theme(
-      panel.border = element_rect(colour = "grey40", fill = NA, linewidth = 0.4)
-    )
-}
-
-# ── 5. Scale helpers ───────────────────────────────────────────────────────────
-
-breaks_integer <- function(n = 5) {
-  function(limits) {
-    max_val <- floor(limits[2])
-    if (max_val <= 1) {
-      return(1)
-    }
-    unique(round(pretty(c(1, max_val), n = min(n, max_val))))
-  }
-}
-
-scale_fill_records <- function(limits = NULL, show_legend = TRUE) {
-  scale_fill_viridis_c(
-    option = "plasma",
-    na.value = "grey92",
-    name = "Records",
-    breaks = breaks_integer(),
-    labels = label_number(accuracy = 1),
-    limits = limits,
-    trans = "sqrt",
-    guide = if (show_legend) "colourbar" else "none"
-  )
-}
-
-scale_fill_diff <- function(limits = NULL, show_legend = TRUE) {
-  scale_fill_viridis_c(
-    option = "mako",
-    na.value = "grey92",
-    name = "Added\nrecords",
-    breaks = breaks_integer(),
-    labels = label_number(accuracy = 1),
-    limits = limits,
-    trans = "sqrt",
-    direction = -1,
-    guide = if (show_legend) "colourbar" else "none"
-  )
-}
-
-# ── 6. Geometry helpers ────────────────────────────────────────────────────────
-
-join_eco <- function(sf_layer, species_counts) {
-  sf_layer |> left_join(species_counts, by = "ECOLOGICAL_REGION")
-}
-
-add_inset <- function(main_plot, map_data, fill_col, scale) {
-  tk_data <- map_data |> filter(ECOLOGICAL_REGION == "Three Kings")
-
-  inset <- ggplot(tk_data) +
-    geom_sf(aes(fill = {{ fill_col }}), colour = "grey60", linewidth = 0.3) +
-    scale +
-    theme_inset() +
-    theme(legend.position = "none")
-
-  main_plot +
-    inset_element(inset, left = 0, bottom = 0.75, right = 0.18, top = 1)
-}
-
-# ── 7. Plot functions ──────────────────────────────────────────────────────────
-
-plot_heatmap <- function(
-  species_name,
-  species_counts,
-  count_col,
-  title_suffix,
-  scale
-) {
-  map_data <- join_eco(sf_eco, species_counts)
-
-  p <- ggplot(map_data) +
-    geom_sf(aes(fill = {{ count_col }}), colour = "grey60", linewidth = 0.15) +
-    scale +
-    labs(title = species_name, subtitle = title_suffix) +
-    theme_map()
-
-  add_inset(p, map_data, {{ count_col }}, scale)
-}
-
-plot_diff <- function(species_name, species_counts, scale) {
-  species_counts_aug <- species_counts |>
-    mutate(
-      diff_plot = if_else(n_diff > 0, as.numeric(n_diff), NA_real_),
-      has_gbif_only = n_gbif > 0 & n_diff == 0
-    )
-
-  map_data <- join_eco(sf_eco, species_counts_aug)
-
-  p <- ggplot(map_data) +
-    geom_sf(fill = "grey92", colour = "grey60", linewidth = 0.15) +
-    geom_sf(
-      data = \(d) filter(d, has_gbif_only),
-      fill = "grey70",
-      colour = "grey60",
-      linewidth = 0.15
-    ) +
-    geom_sf(
-      data = \(d) filter(d, !is.na(diff_plot)),
-      aes(fill = diff_plot),
-      colour = "grey60",
-      linewidth = 0.15
-    ) +
-    scale +
-    labs(title = species_name) +
-    theme_map()
-
-  add_inset(p, map_data, diff_plot, scale)
-}
-
-# ── 8. Per-species row builder ────────────────────────────────────────────────
+# ── 4. Per-species row builder ────────────────────────────────────────────────
 
 build_species_row <- function(
   species_name,
@@ -179,29 +50,38 @@ build_species_row <- function(
     mutate(across(c(n_gbif, n_all, n_diff), \(x) na_if(x, 0L)))
 
   p_gbif <- plot_heatmap(
-    species_name,
-    species_counts_clean,
-    n_gbif,
-    "GBIF only",
-    scale_fill_records(limits = c(1, global_records_max), show_legend = FALSE)
+    title = species_name,
+    counts = species_counts_clean,
+    count_col = n_gbif,
+    subtitle = "GBIF only",
+    scale = scale_fill_records(
+      limits = c(1, global_records_max),
+      show_legend = FALSE
+    ),
+    sf_eco = sf_eco
   )
   p_all <- plot_heatmap(
-    species_name,
-    species_counts_clean,
-    n_all,
-    "GBIF + non-GBIF",
-    scale_fill_records(limits = c(1, global_records_max), show_legend = TRUE)
+    title = species_name,
+    counts = species_counts_clean,
+    count_col = n_all,
+    subtitle = "GBIF + non-GBIF",
+    scale = scale_fill_records(
+      limits = c(1, global_records_max),
+      show_legend = TRUE
+    ),
+    sf_eco = sf_eco
   )
   p_diff <- plot_diff(
-    species_name,
-    species_counts_clean,
-    scale_fill_diff(limits = c(1, global_diff_max), show_legend = TRUE)
+    title = species_name,
+    counts = species_counts_clean,
+    scale = scale_fill_diff(limits = c(1, global_diff_max), show_legend = TRUE),
+    sf_eco = sf_eco
   )
 
   wrap_plots(p_gbif, p_all, p_diff, ncol = 3)
 }
 
-# ── 9. Build rows, split into figures ─────────────────────────────────────────
+# ── 5. Build rows, split into figures ─────────────────────────────────────────
 
 n_per_fig <- 4L
 
@@ -254,7 +134,7 @@ figures <- species_rows |>
     )
   )
 
-# ── 10. Save ───────────────────────────────────────────────────────────────────
+# ── 6. Save ───────────────────────────────────────────────────────────────────
 
 out_dir <- here::here("output", "figures", "heatmaps")
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)

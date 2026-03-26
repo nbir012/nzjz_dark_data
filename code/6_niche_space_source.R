@@ -58,10 +58,6 @@ pca_with_meta <- dplyr::bind_cols(
     )
 )
 
-pca_for_all_ind |> head()
-
-mat_dist_pca <- dist(pca_for_all_ind |> dplyr::select(.fittedPC1:.fittedPC5))
-
 # PCA on availability ------------------------------------------------------
 
 df_fig_availability_pca <- df_pca_for_all %>%
@@ -103,5 +99,3 @@ ggsave(
   height = 6,
   dpi = 300
 )
-
-p3 <- fig_availability_pca

@@ -1,28 +1,6 @@
 source(here::here("code", "00_setup.R"))
 
 # summary stats ----------------------------------------------------------
-
-df_anagotus_combined %>%
-  group_by(species) %>%
-  summarise(
-    count = n(),
-    most_recent_year = max(year, na.rm = TRUE)
-  ) %>%
-  arrange(-count) %>%
-  mutate(most_recent_year = as.character(most_recent_year)) %>%
-  rename(
-    `Species` = species,
-    `No. specimens` = count,
-    `Last collected` = most_recent_year
-  ) %>%
-  flextable::flextable() %>%
-  flextable::align_text_col(align = "center") %>%
-  flextable::set_table_properties(layout = "autofit") |>
-  flextable::save_as_docx(
-    path = here::here("output", "tables", "species_count_date.docx")
-  )
-
-
 # compute 10-year breaks for x axis (extract numeric year first)
 min_year <- df_anagotus_combined %>%
   dplyr::pull(year) %>%
