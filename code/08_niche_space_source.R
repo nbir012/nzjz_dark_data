@@ -24,7 +24,7 @@ fig_availability_pca <- nnpca(
   title = NULL,
   subtitle = NULL,
   caption = NULL,
-  filter = "!`source` %in% c('sf_nz_random_sample_10k', 'sf_doc_random_sample_10k')",
+  filter = "!`source` %in% 'sf_nz_random_sample_10k'",
   bg_filter = "`Availability` == 'sf_nz_random_sample_10k'", # background selection (same forms as `filter`)
   bg_colour = "grey80", # background point colour
   bg_alpha = 0.3, # background alpha

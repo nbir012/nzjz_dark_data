@@ -6,8 +6,7 @@
 #
 #   1. GBIF occurrence data (automated via rgbif)
 #   2. NZ Environmental Data Stack — nzenvds v1.1 (manual download, subset)
-#   3. DOC Public Conservation Land (manual download)
-#   4. Ecological Districts (manual download)
+#   3. Ecological Districts (manual download)
 #
 # Run this script ONCE before running 1_df_preparation.R.
 
@@ -83,31 +82,7 @@ if (dir.exists(nzenvds_dir)) {
 }
 
 
-# ── 3. DOC Public Conservation Land ──────────────────────────────────────────
-#
-# Source: Department of Conservation / data.govt.nz
-#   https://data.govt.nz/dataset/doc-public-conservation-land/
-#
-# MANUAL STEP: Download the GeoPackage (.gpkg) and place it in:
-#   data/DOC_Public_Conservation_Land_4011045003548110480.gpkg
-
-gpkg_doc <- here(
-  "data",
-  "DOC_Public_Conservation_Land_4011045003548110480.gpkg"
-)
-
-if (file.exists(gpkg_doc)) {
-  message("DOC conservation land data present.")
-} else {
-  warning(
-    "DOC conservation land GPKG not found: ",
-    gpkg_doc,
-    "\nDownload from: https://data.govt.nz/dataset/doc-public-conservation-land/"
-  )
-}
-
-
-# ── 4. Ecological Districts ─────────────────────────────────────────────────
+# ── 3. Ecological Districts ─────────────────────────────────────────────────
 #
 # Source: Department of Conservation / data.govt.nz
 #   https://data.govt.nz/dataset/nz-ecological-districts/

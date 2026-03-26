@@ -3,7 +3,7 @@ source(here::here("code", "00_setup.R"))
 # ── 1. Load & dissolve ecological regions ─────────────────────────────────────
 
 sf_eco <- file.path(
-  dirname(gpkg_file),
+  here::here("data"),
   "Ecological_Districts_-2969373808597425294.gpkg"
 ) |>
   sf::st_read() |>

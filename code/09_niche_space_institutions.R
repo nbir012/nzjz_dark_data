@@ -29,7 +29,7 @@ fig_institution_pca <- nnpca(
   title = NULL,
   subtitle = NULL,
   caption = NULL,
-  filter = "!`Institution` %in% c('sf_nz_random_sample_10k', 'sf_doc_random_sample_10k')",
+  filter = "!`Institution` %in% 'sf_nz_random_sample_10k'",
   bg_filter = "`Institution` == 'sf_nz_random_sample_10k'",
   bg_colour = "grey50",
   bg_alpha = 0.05,

@@ -283,45 +283,10 @@ df_anagotus_environment_10k <- bind_rows(
   sf_nz_random_sample_10k
 )
 
-# DoC 10K DF prep --------------------------------------------------------
-
-sf_doc_random_sample_10k <- get_doc_env_sample(
-  n = 10000,
-  seed = 124,
-  path = here::here("data", "sf_doc_random_sample_10k")
-) |>
-  label_bg_sample("sf_doc_random_sample_10k") |>
-  sf::st_as_sf(coords = c("x", "y"), crs = 2193)
-
-# map specimens relative to DoC polygons ---------------------------------
-
-gpkg_file <- here::here(
-  "data",
-  "DOC_Public_Conservation_Land_4011045003548110480.gpkg"
-)
-
-doc_polys <- sf::st_read(gpkg_file, quiet = TRUE) |>
-  sf::st_transform(crs = 2193)
-
-# bind points, then attach doc_polys$Name by spatial join (NA if outside polygon)
-sf_transformed <- bind_rows(
-  df_anagotus_environment_10k,
-  sf_doc_random_sample_10k
-) |>
-  sf::st_join(
-    doc_polys |>
-      dplyr::select(Name) |>
-      sf::st_transform(sf::st_crs(bind_rows(
-        df_anagotus_environment_10k,
-        sf_doc_random_sample_10k
-      ))),
-    left = TRUE
-  )
-
 # save the sf points as a matrix of coordinates
-coords <- sf::st_coordinates(sf_transformed)
+coords <- sf::st_coordinates(df_anagotus_environment_10k)
 
-df_pca_for_all <- sf_transformed |>
+df_pca_for_all <- df_anagotus_environment_10k |>
   dplyr::mutate(
     decimal_longitude = coords[, 1],
     decimal_latitude = coords[, 2]
@@ -369,7 +334,7 @@ set1_custom[9] <- "#009E73"
 # ── 1. Load & dissolve ecological regions ─────────────────────────────────────
 
 sf_eco <- file.path(
-  dirname(gpkg_file),
+  here::here("data"),
   "Ecological_Districts_-2969373808597425294.gpkg"
 ) |>
   sf::st_read() |>
