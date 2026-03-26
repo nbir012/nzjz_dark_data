@@ -1,5 +1,9 @@
 # nzjz_dark_data
 
+<!-- badges: start -->
+[![DOI](https://zenodo.org/badge/1192245094.svg)](https://doi.org/10.5281/zenodo.19242403)
+<!-- badges: end -->
+
 Code archive for the analysis of "dark data" in New Zealand entomological collections, using the weevil genus *Anagotus* as a case study. The paper compares occurrence records available on GBIF (prior to this study) with those held in institutional collections but not yet digitised, not shared online, or online but not easily accessible, quantifying the impact of these "dark" specimen data on spatial and environmental coverage.
 
 > **Citation**
