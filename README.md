@@ -61,6 +61,7 @@ source("code/09_niche_space_institutions.R")
 
 - **What:** Occurrence records for *Anagotus* (Coleoptera: Curculionidae) from the Global Biodiversity Information Facility.
 - **Download key:** `0025977-251009101135966`
+- **Citation:** GBIF.org (15 October 2025) GBIF Occurrence Download <https://doi.org/10.15468/dl.bd6k4h>
 - **How to obtain:** Downloaded automatically by `02_download_data.R` using `rgbif::occ_download_get()`. Requires GBIF credentials (`GBIF_USER`, `GBIF_PWD`, `GBIF_EMAIL` environment variables). See the [rgbif credentials guide](https://docs.ropensci.org/rgbif/articles/gbif_credentials.html).
 - **Licence:** Subject to GBIF data-use terms — <https://www.gbif.org/terms>.
 - **Location:** `data/0025977-251009101135966.zip`
